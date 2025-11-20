@@ -1,7 +1,7 @@
 import 'package:qrpaypro/extentions/custom_extentions.dart';
 
 class ApiEndpoint {
-  static const String mainDomain = "PUT-YOUR-OWN-DOMAIN-HERE";
+  static const String mainDomain = "https://estate.edubest.com.ng";
 
   static const String baseUrl = "$mainDomain/api";
 
