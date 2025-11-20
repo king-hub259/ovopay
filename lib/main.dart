@@ -1,123 +1,106 @@
-import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:get/get.dart';
-import 'package:ovopay/core/data/controller/localization/localization_controller.dart';
-import 'package:ovopay/core/route/route.dart';
-import 'package:ovopay/core/utils/util_exporter.dart';
-import 'package:ovopay/environment.dart';
-import 'package:toastification/toastification.dart';
-import 'core/data/services/service_exporter.dart';
-import 'core/di_service/di_services.dart' as di_service;
+import 'package:get_storage/get_storage.dart';
+import 'package:pusher_beams/pusher_beams.dart';
+import 'package:qrpaypro/routes/routes.dart';
 
-Future<void> main() async {
+import 'backend/services/notification_service.dart';
+import 'backend/utils/maintenance_dialog.dart';
+import 'backend/utils/network_check/dependency_injection.dart';
+import 'controller/app_settings/app_settings_controller.dart';
+import 'language/language_controller.dart';
+import 'utils/theme.dart';
+
+void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  //Stop Landscape
-  MyUtils().stopLandscape();
-  // init shared preference
-  await SharedPreferenceService.init();
-  // inti fcm services
-  await PushNotificationService().setupInteractedMessage();
-  //Api inits
-  ApiService.init();
-  //Dependency injection
-  await di_service.initDependency();
-  HttpOverrides.global = MyHttpOverrides();
-  runApp(OvoApp(languages: {}));
+  await ScreenUtil.ensureScreenSize();
+  // Locking Device Orientation
+  SystemChrome.setPreferredOrientations([
+    DeviceOrientation.portraitUp,
+    DeviceOrientation.portraitDown,
+  ]);
+
+  NotificationService.init();
+  // check internet connection
+  InternetCheckDependencyInjection.init();
+  GetStorage.init();
+  // main app
+  runApp(const MyApp());
 }
 
-class MyHttpOverrides extends HttpOverrides {
-  @override
-  HttpClient createHttpClient(SecurityContext? context) {
-    return super.createHttpClient(context)..badCertificateCallback = (X509Certificate cert, String host, int port) => true;
-  }
-}
-
-//APP ENTRY POINT
-class OvoApp extends StatefulWidget {
-  final Map<String, Map<String, String>> languages;
-  const OvoApp({super.key, required this.languages});
+class MyApp extends StatefulWidget {
+  const MyApp({super.key});
 
   @override
-  State<OvoApp> createState() => _OvoAppState();
+  State<MyApp> createState() => _MyAppState();
 }
 
-class _OvoAppState extends State<OvoApp> {
+class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
   @override
   void initState() {
+    initPusherBeams();
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((t) {
-      Future.wait([
-        precacheImage(AssetImage(MyImages.balanceCardBgImage), context),
-      ]);
-    });
+  }
+
+  Future<void> initPusherBeams() async {
+    if (!kIsWeb) {
+      await PusherBeams.instance
+          .onMessageReceivedInTheForeground(_onMessageReceivedInTheForeground);
+    }
+    await _checkForInitialMessage();
+  }
+
+  Future<void> _checkForInitialMessage() async {
+    final initialMessage = await PusherBeams.instance.getInitialMessage();
+    if (initialMessage != null) {}
+  }
+
+  void _onMessageReceivedInTheForeground(Map<Object?, Object?> data) {
+    NotificationService.showLocalNotificationPusher(
+      title: data["title"].toString(),
+      body: data["body"].toString(),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
-    return OrientationBuilder(
-      builder: (context, orientation) {
-        final size = MediaQuery.of(context).size;
-        Size designSize;
-        if (size.width > 900) {
-          // **Tablets or Large Screens**
-          designSize = orientation == Orientation.landscape ? const Size(1400, 900) : const Size(900, 1400);
-        } else if (size.width > 600) {
-          // **Medium-sized tablets**
-          designSize = orientation == Orientation.landscape ? const Size(1200, 800) : const Size(800, 1200);
-        } else if (size.width > 430) {
-          // **Big Phones like Galaxy S24 Ultra, iPhone 15 Pro Max**
-          designSize = orientation == Orientation.landscape
-              ? const Size(1000, 450) // Adjust for landscape
-              : const Size(450, 1000); // Adjust for portrait
-        } else {
-          // **Default mobile phones**
-          designSize = orientation == Orientation.landscape ? const Size(812, 375) : const Size(375, 812);
-        }
-        // printE("$designSize -- ${size.width}");
-
-        return ScreenUtilInit(
-          // todo add your (Xd / Figma) artboard size
-          designSize: designSize,
-          minTextAdapt: true,
-          splitScreenMode: true,
-          useInheritedMediaQuery: true,
-          rebuildFactor: (old, data) => true,
-          builder: (context, w) {
-            return ToastificationWrapper(
-              child: GetMaterialApp(
-                title: Environment.appName,
-                debugShowCheckedModeBanner: false,
-                defaultTransition: Transition.noTransition,
-                transitionDuration: const Duration(milliseconds: 200),
-                initialRoute: RouteHelper.splashScreen,
-                themeMode: ThemeMode.light,
-                navigatorKey: Get.key,
-                getPages: RouteHelper.routes,
-                locale: LocalizationController().locale,
-                translations: LanguageMessages(languages: widget.languages),
-                fallbackLocale: Locale(
-                  LocalizationController().locale.languageCode,
-                  LocalizationController().locale.countryCode,
-                ),
-                useInheritedMediaQuery: true,
-                builder: (context, widget) {
-                  return Theme(
-                    data: ThemeData.light().copyWith(
-                      scaffoldBackgroundColor: MyColor.getScreenBgColor(),
-                    ),
-                    child: MediaQuery(
-                      data: MediaQuery.of(
-                        context,
-                      ).copyWith(textScaler: TextScaler.linear(1.0)),
-                      child: widget!,
-                    ),
-                  );
-                },
-              ),
-            );
+    return ScreenUtilInit(
+      designSize: const Size(414, 896),
+      builder: (_, child) => GetMaterialApp(
+        debugShowCheckedModeBanner: false,
+        theme: Themes.light,
+        darkTheme: Themes.dark,
+        themeMode: Themes().theme,
+        navigatorKey: Get.key,
+        initialRoute: Routes.splashScreen,
+        getPages: Routes.list,
+        initialBinding: BindingsBuilder(
+          () {
+            Get.put(LanguageController());
+            Get.put(AppSettingsController(), permanent: true);
+            Get.put(SystemMaintenanceController());
           },
-        );
-      },
+        ),
+        builder: (context, widget) {
+          ScreenUtil.init(context);
+          final languageController = Get.find<LanguageController>();
+          return Obx(
+            () => MediaQuery(
+              data: MediaQuery.of(context)
+                  .copyWith(textScaler: const TextScaler.linear(1.0)),
+              child: Directionality(
+                textDirection: languageController.isLoading
+                    ? TextDirection.ltr
+                    : languageController.languageDirection,
+                child: widget!,
+              ),
+            ),
+          );
+        },
+      ),
     );
   }
 }
